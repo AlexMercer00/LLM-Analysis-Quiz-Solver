@@ -1,0 +1,21 @@
+# Python venv
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Playwright downloaded browsers (if any)
+.playwright/
+.ms-playwright/
+
+# system
+.DS_Store
+
+# dotenv
+.env
+.env.local
+
+# Docker build artefacts
+*.tar
