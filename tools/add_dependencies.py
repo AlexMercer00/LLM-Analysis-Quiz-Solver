@@ -1,38 +1,25 @@
 from typing import List
 from langchain_core.tools import tool
-import subprocess
-
 
 @tool
 def add_dependencies(dependencies: List[str]) -> str:
     """
-    Install the given Python packages into the environment.
+    Runtime dependency installation is intentionally disabled.
 
-    Parameters:
-        dependencies (List[str]):
-            A list of Python package names to install. Each name must match the 
-            corresponding package name on PyPI.
+    Reason:
+    - Evaluation environments may not allow internet access
+    - Installing packages during execution can cause timeouts
+    - All required dependencies are already declared in pyproject.toml
 
-    Returns:
-        str:
-            A message indicating success or failure.
+    This tool exists only to satisfy the agent interface and
+    prevent failures if the LLM attempts to install packages.
     """
 
-    try:
-        subprocess.check_call(
-            ["uv", "add"] + dependencies,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        return "Successfully installed dependencies: " + ", ".join(dependencies)
-    
-    except subprocess.CalledProcessError as e:
-        return (
-            "Dependency installation failed.\n"
-            f"Exit code: {e.returncode}\n"
-            f"Error: {e.stderr or 'No error output.'}"
-        )
-    
-    except Exception as e:
-        return f"Unexpected error while installing dependencies: {e}" 
+    if not dependencies:
+        return "No dependencies requested. All required packages are already available."
+
+    return (
+        "Runtime dependency installation is disabled. "
+        "All required dependencies are pre-installed. "
+        f"Requested packages ignored: {', '.join(dependencies)}"
+    )
