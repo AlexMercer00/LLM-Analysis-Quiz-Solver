@@ -20,16 +20,25 @@ from langgraph.graph.message import add_messages
 import os
 from dotenv import load_dotenv
 
+# -------------------------------------------------
+# ENV
+# -------------------------------------------------
 load_dotenv()
 
 EMAIL = os.getenv("EMAIL")
 SECRET = os.getenv("SECRET")
-MODEL = os.getenv("MODEL", "gpt-5-nano")
+MODEL = os.getenv("MODEL", "gemini-2.5-flash")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    raise RuntimeError("GOOGLE_API_KEY is missing")
 
 RECURSION_LIMIT = 2000
 MAX_TOKENS = 60000
 
-# ---------------- STATE ----------------
+# -------------------------------------------------
+# STATE
+# -------------------------------------------------
 class AgentState(TypedDict):
     messages: Annotated[List, add_messages]
 
@@ -44,51 +53,47 @@ TOOLS = [
     encode_image_to_base64,
 ]
 
-# ---------------- LLM INIT ----------------
+# -------------------------------------------------
+# LLM INIT (GEMINI ONLY)
+# -------------------------------------------------
 rate_limiter = InMemoryRateLimiter(
     requests_per_second=4 / 60,
     check_every_n_seconds=1,
     max_bucket_size=4,
 )
 
-# 🔑 Explicit provider selection (FIX)
-if MODEL.startswith("gpt"):
-    llm = init_chat_model(
-        model=MODEL,
-        model_provider="openai",
-        rate_limiter=rate_limiter,
-    )
-else:
-    llm = init_chat_model(
-        model=MODEL,
-        model_provider="google_genai",
-        rate_limiter=rate_limiter,
-    )
+llm = init_chat_model(
+    model=MODEL,
+    model_provider="google_genai",
+    rate_limiter=rate_limiter,
+).bind_tools(TOOLS)
 
-llm = llm.bind_tools(TOOLS)
-
-# ---------------- SYSTEM PROMPT ----------------
+# -------------------------------------------------
+# SYSTEM PROMPT
+# -------------------------------------------------
 SYSTEM_PROMPT = f"""
 You are an autonomous quiz-solving agent.
 
 Rules:
-- Always extract instructions from the page.
-- Use tools for scraping, downloading, OCR, audio, or analysis.
-- Submit answers ONLY to the provided submit endpoint.
-- Follow next URLs until none remain.
+- Always read instructions from the page carefully.
+- Use tools for JavaScript rendering, downloads, OCR, audio, and analysis.
+- Submit answers ONLY to the submit endpoint specified on the page.
 - Never hallucinate URLs or fields.
+- Follow any new URLs until none remain.
 - Always include:
   email = {EMAIL}
   secret = {SECRET}
 """
 
-# ---------------- AGENT NODE ----------------
+# -------------------------------------------------
+# AGENT NODE
+# -------------------------------------------------
 def agent_node(state: AgentState):
     cur_time = time.time()
     cur_url = os.getenv("url")
     prev_time = url_time.get(cur_url)
 
-    # ⏱ Hard 3-minute limit
+    # Hard 3-minute limit
     if prev_time and (cur_time - prev_time) >= 180:
         fail_msg = HumanMessage(
             content="Time limit exceeded. Immediately submit an incorrect answer."
@@ -108,7 +113,9 @@ def agent_node(state: AgentState):
     result = llm.invoke(trimmed)
     return {"messages": [result]}
 
-# ---------------- ROUTER ----------------
+# -------------------------------------------------
+# ROUTER
+# -------------------------------------------------
 def route(state):
     last = state["messages"][-1]
 
@@ -121,7 +128,9 @@ def route(state):
 
     return "agent"
 
-# ---------------- GRAPH ----------------
+# -------------------------------------------------
+# GRAPH
+# -------------------------------------------------
 graph = StateGraph(AgentState)
 
 graph.add_node("agent", agent_node)
@@ -133,12 +142,18 @@ graph.add_edge("tools", "agent")
 graph.add_conditional_edges(
     "agent",
     route,
-    {"tools": "tools", "agent": "agent", END: END},
+    {
+        "tools": "tools",
+        "agent": "agent",
+        END: END,
+    },
 )
 
 app = graph.compile()
 
-# ---------------- RUNNER ----------------
+# -------------------------------------------------
+# RUNNER
+# -------------------------------------------------
 def run_agent(url: str):
     initial_messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
